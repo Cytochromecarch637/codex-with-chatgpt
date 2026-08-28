@@ -27,6 +27,9 @@ whatever data it needs by itself.
    Never touch OAuth tokens, cookies, or session storage.
 4. If something fails, run `c2c doctor` and repair silently. Only involve the user
    for logins, CAPTCHA, 2FA, or explicit consent screens — and then give them ONE action.
+5. ALWAYS use the built-in browser for every browser step (ChatGPT, authorization
+   page, verification). NEVER launch or control a third-party/external browser
+   (Chrome, Safari, Edge…), and never use `open <url>` to hand off to one.
 
 ## Locations
 
@@ -46,9 +49,10 @@ whatever data it needs by itself.
 3. Run: `c2c setup -w <workspace> --json`
    → returns `{ mcpUrl, pairingCode, workspaceName, ... }`.
    Pairing codes expire in ~5 minutes: run `c2c pair --json` for a fresh one if you're slow.
-4. Open ChatGPT in the browser (chatgpt.com). Using Computer Use:
-   a. Go to Settings → Connectors / Apps (developer mode may need to be enabled
-      under Settings → Apps & Connectors → Advanced).
+4. Open ChatGPT (chatgpt.com) in the BUILT-IN browser. Using Computer Use:
+   a. Go to Settings → Connectors / Apps. If connector creation is hidden, enable
+      开发人员模式 ("Developer mode" in English UIs) under
+      设置 → 应用与连接器 → 高级 (Settings → Apps & Connectors → Advanced).
    b. Create a new connector:
       - Name: `Codex with ChatGPT`
       - Description: `Securely connect ChatGPT to the current Codex workspace for planning and review.`
