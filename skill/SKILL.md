@@ -30,8 +30,11 @@ whatever data it needs by itself.
 
 ## Locations
 
-- CLI: run `node <repo>/bin/c2c.js <command>` from the codex-with-chatgpt checkout,
-  or `c2c <command>` if globally linked. All commands support `--json` for parsing.
+- The codex-with-chatgpt checkout lives at: `/Users/xiaoduo_/Codex_With_ChatGPT`
+- CLI: run `node /Users/xiaoduo_/Codex_With_ChatGPT/bin/c2c.js <command>`
+  (or `c2c <command>` if globally linked). All commands support `--json` for parsing.
+- If the checkout has no `node_modules` or no `dist/`, first run
+  `corepack pnpm install && corepack pnpm build` inside it.
 - Always pass `-w <workspace root>` (the project the user is working on, NOT the c2c repo).
 
 ## Workflow: first-time setup（"使用 Codex with ChatGPT 完成首次配置"）
