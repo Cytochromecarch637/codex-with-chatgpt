@@ -5,28 +5,14 @@
 
 ## The problem · 解决什么问题
 
-**EN** — If you pay for ChatGPT (Plus/Pro), you're sitting on a pile of
-web-app quota for OpenAI's strongest models that mostly goes unused — while
-your coding agent burns through scarce, per-token API/Codex quota doing the
-heaviest thinking: understanding the codebase, planning, and reviewing.
+**EN** — ChatGPT Plus/Pro web quota sits idle while your coding agent burns
+scarce API/Codex tokens on planning and review. This project moves the
+thinking to the subscription you already pay for; Codex only executes.
+No API keys, no reverse proxy — official web UI plus a read-only MCP bridge.
 
-This project fixes that split. It offloads the expensive "brain work"
-(analysis, planning, code review) to the ChatGPT **web subscription you
-already pay for**, and keeps Codex focused on what it's best at — executing:
-editing files, running shells and tests, committing. Your API/Codex quota is
-spent almost entirely on doing, not thinking. No API keys, no reverse
-proxies — just the official web UI plus a secure read-only window into your
-workspace.
-
-**中文** — 如果你是 ChatGPT 付费用户（Plus/Pro），网页端强模型的额度往往
-大量闲置；而另一边，编码 Agent 却在用按 token 计费、额度紧张的 API/Codex
-模型干最烧脑的活：理解代码库、制定方案、审查实现。
-
-这个项目就是来解决这种错配的：把最贵的"脑力活"（分析、规划、Review）卸载
-到**你已经付过费的 ChatGPT 网页版**上，让 Codex 专注于它最擅长的执行——改
-文件、跑命令、跑测试、提交。你的 API/Codex 额度几乎全部花在"干活"而不是
-"思考"上。不需要 API Key，不搞逆向代理——用的就是官方网页，再加一条安全的
-只读通道让 ChatGPT 看得到你的工作区。
+**中文** — ChatGPT 付费订阅的网页版额度大量闲置，Codex 却在消耗紧张的
+API 额度做规划和 Review。本项目把"思考"交给你已付费的网页版 ChatGPT，
+Codex 只负责执行。不用 API Key、不搞逆向代理——官方网页 + 只读 MCP 桥接。
 
 ## What it is · 这是什么
 
