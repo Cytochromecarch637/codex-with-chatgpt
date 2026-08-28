@@ -9,7 +9,35 @@ sessions — while Codex keeps full ownership of execution. Your repository is
 never uploaded; ChatGPT reads exactly the lines it needs through a secure,
 OAuth-protected, **read-only** MCP connection to your current workspace.
 
-## Install → Setup → Use
+## One-paste install (for complete beginners)
+
+Don't know git, Node, or terminals? You don't need to. Copy the paragraph
+below, paste it to your coding agent (Codex), and go grab a coffee:
+
+```text
+Please install and configure "Codex with ChatGPT" for me, fully automatically.
+I am a non-technical user — do everything yourself:
+
+1. Check the environment: git and Node.js >= 20 must be available. Install
+   anything missing yourself (macOS: Homebrew, Windows: winget). Also install
+   cloudflared.
+2. Download: clone https://github.com/XiaoDuoYa/codex-with-chatgpt into
+   ~/codex-with-chatgpt (if it already exists, git pull to update).
+3. Build: inside that folder run `corepack pnpm install` then `corepack pnpm build`.
+4. Install the Skill: copy skill/SKILL.md to
+   ~/.codex/skills/codex-with-chatgpt/SKILL.md, and update the line
+   "The codex-with-chatgpt checkout lives at:" to the actual clone path.
+5. First-time setup: follow the SKILL.md "first-time setup" workflow
+   (run c2c setup, configure the ChatGPT connector in the BUILT-IN browser,
+   enter the pairing code). Never open a third-party browser.
+6. Only interrupt me for logins (ChatGPT / Cloudflare), CAPTCHAs or 2FA —
+   and give me exactly ONE action at a time.
+7. When done, show me the ✓ checklist and confirm the file-read test passed.
+   I don't know what MCP, OAuth, tunnels or ports are. Don't explain them.
+   If anything breaks, fix it yourself first.
+```
+
+## Install → Setup → Use (manual)
 
 1. Install the Codex Skill: copy `skill/` to `~/.codex/skills/codex-with-chatgpt/`.
 2. Tell Codex: **"Set up Codex with ChatGPT."** (中文: "使用 Codex with ChatGPT 完成首次配置。")

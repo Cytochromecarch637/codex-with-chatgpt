@@ -8,7 +8,33 @@
 Codex 手里。你的仓库永远不会被上传——ChatGPT 通过一条安全的、OAuth 保护的
 **只读** MCP 连接，按需读取当前工作区里它真正需要的那几行代码。
 
-## 安装 → 配置 → 使用
+## 一段话安装（纯小白专用）
+
+不懂 git、Node、终端？完全不需要懂。把下面这段话原样复制给你的编码
+Agent（Codex），然后去倒杯咖啡：
+
+```text
+请帮我完整安装并配置 Codex with ChatGPT，全程自动，我是不懂技术的小白，
+所有事情你自己做：
+
+1. 环境自检：需要 git 和 Node.js ≥ 20，缺什么就自动安装
+  （macOS 用 Homebrew，Windows 用 winget），同时安装 cloudflared。
+2. 下载：把 https://github.com/XiaoDuoYa/codex-with-chatgpt 克隆到
+   ~/codex-with-chatgpt（已存在就 git pull 更新）。
+3. 构建：在该目录里执行 corepack pnpm install 和 corepack pnpm build。
+4. 安装 Skill：把仓库里的 skill/SKILL.md 复制到
+   ~/.codex/skills/codex-with-chatgpt/SKILL.md，并把文件中
+   "The codex-with-chatgpt checkout lives at:" 那一行的路径改成实际克隆路径。
+5. 首次配置：按 SKILL.md 里的 first-time setup 流程执行
+  （运行 c2c setup，用内置浏览器打开 ChatGPT 配置连接器并输入配对码）。
+   全程只用内置浏览器，禁止打开任何第三方浏览器。
+6. 只有遇到需要我登录（ChatGPT / Cloudflare）、验证码或两步验证时才叫我，
+   而且一次只告诉我一个动作。
+7. 完成后给我看 ✓ 清单，并确认文件读取测试通过。我不懂 MCP、OAuth、
+   Tunnel、端口这些词，不要向我解释；出了问题先自己修。
+```
+
+## 安装 → 配置 → 使用（手动版）
 
 1. 安装 Codex Skill：把 `skill/` 复制到 `~/.codex/skills/codex-with-chatgpt/`。
 2. 对 Codex 说：**"使用 Codex with ChatGPT 完成首次配置。"**
