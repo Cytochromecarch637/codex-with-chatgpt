@@ -1,0 +1,127 @@
+# Codex with ChatGPT
+
+[English](README.md) | **简体中文**
+
+> ChatGPT 负责思考，Codex 负责干活。
+
+把 ChatGPT 网页版变成 Codex 编码会话的"规划与审查大脑"，而执行权完全保留在
+Codex 手里。你的仓库永远不会被上传——ChatGPT 通过一条安全的、OAuth 保护的
+**只读** MCP 连接，按需读取当前工作区里它真正需要的那几行代码。
+
+## 安装 → 配置 → 使用
+
+1. 安装 Codex Skill：把 `skill/` 复制到 `~/.codex/skills/codex-with-chatgpt/`。
+2. 对 Codex 说：**"使用 Codex with ChatGPT 完成首次配置。"**
+3. 之后正常使用：**"使用 Codex with ChatGPT，帮我实现 XXX。"**
+
+说明书到此结束。你不需要知道 MCP、OAuth、Tunnel、端口、localhost 是什么——
+Codex 会自动完成所有配置，你只会看到：
+
+```
+Codex with ChatGPT
+
+✓ 当前项目已识别
+✓ Workspace Bridge 已启动
+✓ 安全连接已建立
+✓ ChatGPT 已连接
+✓ 文件读取测试通过
+
+Ready.
+```
+
+唯一可能需要你动手的步骤：登录 ChatGPT。仅此而已。
+
+## 工作原理
+
+```
+             ┌───────────────────────────┐
+             │      ChatGPT 网页版       │
+             │   推理 / 规划 / 审查      │
+             └──────────┬──────────▲─────┘
+                        │          │
+               MCP      │          │ Computer Use
+              数据面    │          │ 控制面（消息 < 1 KB）
+                        ▼          │
+             ┌─────────────────────┐
+             │      C2C Bridge     │   仅监听本机回环地址
+             │  只读 MCP           │   OAuth 2.1 + 一次性配对码
+             │  OAuth + 配对       │   Cloudflare Quick Tunnel
+             │  Tunnel 管理        │
+             └──────────┬──────────┘
+                        │  只读
+                        ▼
+             ┌─────────────────────┐          ┌─────────────────────┐
+             │     本地工作区      │◀─────────│    Codex Harness    │
+             └─────────────────────┘ 编辑/git │  Shell / 测试 / 修复 │
+                                              └─────────────────────┘
+```
+
+- **控制面（Computer Use）**：Codex 与 ChatGPT 之间只交换极小的结构化 `[C2C]`
+  状态消息——`INIT → PLAN → EXECUTED → REVIEW → DONE`。绝不粘贴 diff、日志
+  或文件内容。
+- **数据面（MCP）**：ChatGPT 缺什么自己拉什么，共 8 个只读工具：
+  `workspace_info`、`list_directory`、`read_file`、`search_workspace`、
+  `git_status`、`git_diff`、`test_status`、`execution_summary`。
+- **独立审查**：Codex 执行完毕后，ChatGPT 通过 MCP 亲自检查真实的 git diff
+  和测试记录——绝不因为 Codex 说"测试全过"就直接相信。
+
+## 安全模型（简版）
+
+- **从构造上只读**：服务端根本不存在写文件/删除/Shell/提交类工具，任何提示
+  注入都无法启用它们。
+- **一个工作区 = 一道边界**：每个令牌绑定单一工作区；路径校验基于规范化
+  realpath（symlink、`../`、绝对路径逃逸全部被拦截并有测试覆盖）。
+- **敏感文件永不外泄**：`.env*`、密钥、SSH、各类凭据默认拒绝
+  （`.env.example` 放行）；`.c2cignore` 可追加自定义规则。
+- **知道 URL 不等于有权限**：公网 MCP 端点强制 OAuth 2.1（PKCE S256、动态
+  客户端注册、refresh token 轮换）。无令牌：401；令牌属于别的工作区：403。
+- **模型永远接触不到长期凭据**：唯一会出现在浏览器里的秘密是一次性配对码
+  （5 分钟有效、限 5 次尝试、限速、用后即毁）。
+
+完整威胁模型：[docs/security.md](docs/security.md)
+
+## 开发者
+
+```bash
+pnpm install
+pnpm build          # 产出 dist/，暴露 c2c 命令
+pnpm test           # vitest：76 个测试（路径安全、OAuth、配对、MCP 端到端）
+
+c2c setup           # 一条命令：Bridge + 隧道 + 配对码
+c2c status / doctor / pair / unpair / logs / stop
+```
+
+环境要求：Node.js >= 20、git；公网连接需要 `cloudflared`
+（自动检测，Skill 会替你安装）。
+
+文档：[架构](docs/architecture.md) · [协议](docs/protocol.md) ·
+[安全](docs/security.md) · [故障排查](docs/troubleshooting.md)
+
+## 目录结构
+
+```
+src/
+  bridge/     本机回环 HTTP 服务、端口自动恢复、管理 API
+  mcp/        8 个只读工具、无状态 Streamable HTTP
+  auth/       OAuth 2.1（PKCE、动态注册、refresh 轮换、吊销）
+  pairing/    一次性配对码（CSPRNG、TTL、限速）
+  workspace/  路径收敛、敏感文件策略、搜索、git
+  tunnel/     TunnelProvider 抽象 + Cloudflare Quick Tunnel
+  execution/  审查闭环所需的执行记录
+  process/    守护进程生命周期
+  cli/        c2c 命令行
+skill/        Codex Skill（真正的 UX 层）
+tests/        单元 + 集成测试
+docs/         架构 / 协议 / 安全 / 故障排查
+```
+
+## 状态与声明
+
+V1。已端到端验证：Bridge、OAuth + 配对、公网隧道、ChatGPT 连接器配置、
+零操作首次配置体验。
+
+**非官方社区项目，与 OpenAI 无关联，未获其背书。**
+
+## 许可证
+
+[MIT](LICENSE)
