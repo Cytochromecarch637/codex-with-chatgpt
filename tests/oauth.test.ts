@@ -205,7 +205,7 @@ describe("authorization + token flow", () => {
     const response = await fetch(authorizeUrl, { redirect: "manual" });
     expect(response.status).toBe(200);
     expect(response.headers.get("content-security-policy")).toBe(
-      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https:; base-uri 'none'; frame-ancestors 'none'"
     );
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("x-frame-options")).toBe("DENY");
