@@ -114,8 +114,14 @@ Codex with ChatGPT
 Ready.
 ```
 
-The only step that may need you: logging into ChatGPT (and, if you want a
-stable hostname, logging into Cloudflare once).
+The only steps that may need you: logging into ChatGPT (and, if you want a
+stable hostname, logging into Cloudflare once). A **new** workspace also asks
+you to create a ChatGPT Project (collection) once — pick **project-only
+memory**, name it after the workspace. If the sidebar has no Projects row,
+hover **Chats**, open the … menu, and choose **Organize by project**. Codex
+then saves that collection link and starts chats from that page. Existing
+workspaces that already have a C2C chat stay on the old one-conversation
+style until you ask to switch.
 
 ### Optional stable hostname
 

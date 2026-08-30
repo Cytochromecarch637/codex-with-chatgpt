@@ -42,6 +42,14 @@ import {
   type LastEndpoint,
 } from "../config/endpoint.js";
 import { PRODUCT_NAME, VERSION } from "../version.js";
+import {
+  clearChatPointer,
+  mergeSession,
+  readSession,
+  resolveConversation,
+  writeSession,
+  type ConversationMode,
+} from "../session/state.js";
 
 const program = new Command();
 
@@ -792,78 +800,92 @@ program
     emit({ checked: true, updateAvailable, localCommit: local.stdout, remoteCommit });
   });
 
-// ---------------------------------------------------------------- session (ChatGPT conversation memory)
-
-interface SavedSession {
-  url: string;
-  title?: string;
-  taskId?: string;
-  iteration?: number;
-  lastState?: string;
-  savedAt: string;
-}
-
-function sessionFile(workspaceId: string): string {
-  const dir = path.join(getStateDir(), "sessions");
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return path.join(dir, `${workspaceId}.json`);
-}
+// ---------------------------------------------------------------- session (ChatGPT conversation / Project memory)
 
 const session = program
   .command("session")
-  .description("Remember and reuse the ChatGPT conversation for this workspace");
+  .description("Remember the ChatGPT Project and conversation for this workspace");
 
 session
   .command("get", { isDefault: true })
-  .description("Show the saved ChatGPT conversation for this workspace")
+  .description("Show the saved ChatGPT conversation / Project for this workspace")
   .option("-w, --workspace <path>")
   .option("--json", "machine-readable output", false)
   .action((opts: { workspace?: string; json: boolean }) => {
     const workspace = new Workspace(resolveWorkspace(opts.workspace));
-    const file = sessionFile(workspace.id);
-    const saved = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf8")) as SavedSession) : null;
-    if (opts.json) say(JSON.stringify({ ok: true, session: saved }));
-    else if (!saved) say("尚未记录 ChatGPT 会话。");
-    else {
-      say(`会话：${saved.title ?? "(untitled)"}`);
-      say(`地址：${saved.url}`);
+    const saved = readSession(workspace.id);
+    const conversation = resolveConversation(saved);
+    if (opts.json) say(JSON.stringify({ ok: true, session: saved, conversation }));
+    else if (!saved) {
+      say("尚未记录 ChatGPT 会话。新仓库默认使用 Project 合集。");
+    } else {
+      say(`模式：${conversation.mode === "project" ? "Project 合集" : "长对话"}`);
+      if (conversation.projectUrl) say(`合集：${conversation.projectUrl}`);
+      if (saved.title) say(`会话：${saved.title}`);
+      if (saved.url) say(`对话：${saved.url}`);
+      if (saved.connectorName) say(`连接器：${saved.connectorName}`);
       if (saved.taskId) say(`任务：${saved.taskId}（第 ${saved.iteration ?? 0} 轮，${saved.lastState ?? "?"}）`);
     }
   });
 
 session
   .command("set")
-  .description("Save the ChatGPT conversation to reuse in later tasks")
+  .description("Save the ChatGPT Project and/or conversation for this workspace")
   .option("-w, --workspace <path>")
-  .requiredOption("--url <url>", "conversation URL as shown in the browser address bar")
+  .option("--url <url>", "ChatGPT conversation URL from the address bar")
   .option("--title <title>")
   .option("--task <id>")
   .option("--iteration <n>")
   .option("--state <state>", "last protocol state, e.g. EXECUTED")
-  .action((opts: { workspace?: string; url: string; title?: string; task?: string; iteration?: string; state?: string }) => {
-    const workspace = new Workspace(resolveWorkspace(opts.workspace));
-    const file = sessionFile(workspace.id);
-    const previous = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf8")) as SavedSession) : null;
-    const saved: SavedSession = {
-      url: opts.url,
-      title: opts.title ?? previous?.title,
-      taskId: opts.task ?? previous?.taskId,
-      iteration: opts.iteration ? parseInt(opts.iteration, 10) : previous?.iteration,
-      lastState: opts.state ?? previous?.lastState,
-      savedAt: new Date().toISOString(),
-    };
-    fs.writeFileSync(file, JSON.stringify(saved, null, 2), { mode: 0o600 });
-    check("已记录 ChatGPT 会话，后续任务将复用");
-  });
+  .option("--mode <mode>", "long-chat or project")
+  .option("--project-url <url>", "ChatGPT Project collection URL (…/g/g-p-…/project)")
+  .option("--connector-name <name>", "exact connector title for this workspace")
+  .action(
+    (opts: {
+      workspace?: string;
+      url?: string;
+      title?: string;
+      task?: string;
+      iteration?: string;
+      state?: string;
+      mode?: string;
+      projectUrl?: string;
+      connectorName?: string;
+    }) => {
+      const workspace = new Workspace(resolveWorkspace(opts.workspace));
+      const modeRaw = opts.mode?.trim().toLowerCase();
+      if (modeRaw && modeRaw !== "long-chat" && modeRaw !== "project") {
+        throw new Error("mode must be long-chat or project");
+      }
+      const saved = mergeSession(readSession(workspace.id), {
+        url: opts.url,
+        title: opts.title,
+        taskId: opts.task,
+        iteration: opts.iteration ? parseInt(opts.iteration, 10) : undefined,
+        lastState: opts.state,
+        conversationMode: modeRaw as ConversationMode | undefined,
+        projectUrl: opts.projectUrl,
+        connectorName: opts.connectorName,
+      });
+      writeSession(workspace.id, saved);
+      if (saved.projectUrl && saved.conversationMode === "project") {
+        check("已记录 ChatGPT 合集，后续从合集页新开或复用对话");
+      } else {
+        check("已记录 ChatGPT 会话，后续任务将复用");
+      }
+    }
+  );
 
 session
   .command("clear")
-  .description("Forget the saved conversation (a new chat will be created next time)")
+  .description("Forget the current ChatGPT chat (Project binding is kept)")
   .option("-w, --workspace <path>")
   .action((opts: { workspace?: string }) => {
     const workspace = new Workspace(resolveWorkspace(opts.workspace));
-    fs.rmSync(sessionFile(workspace.id), { force: true });
-    check("已清除会话记录，下次任务将新建 ChatGPT 会话");
+    const result = clearChatPointer(workspace.id);
+    if (!result.cleared) say("尚未记录 ChatGPT 会话。");
+    else if (result.keptProject) check("已清除当前对话，合集绑定仍保留");
+    else check("已清除会话记录，下次任务将新建 ChatGPT 会话");
   });
 
 program

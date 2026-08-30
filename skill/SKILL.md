@@ -39,10 +39,19 @@ whatever data it needs by itself.
      你浏览器的正常使用。ChatGPT 只能跑在内置浏览器里。" Only if the user replies
      with an explicit "我愿意承担影响" may you proceed in their browser; otherwise
      keep ChatGPT in the built-in browser, every time they ask.
-6. Reuse ONE ChatGPT conversation per workspace (see Conversation management).
-   Never silently start a new chat. Each workspace also has exactly ONE ChatGPT
-   connector. Do not create a second connector for the same workspace. Other
-   workspaces may have their own connectors — never edit those.
+6. Conversation reuse depends on `c2c session --json` → `conversation.mode`
+   (see Conversation management). Do not invent a second mode.
+   - **long-chat** (legacy session file, or the user opted out): ONE ChatGPT
+     conversation per workspace. Never silently start a new chat.
+   - **project** (new workspaces, or an existing workspace that opted in):
+     ONE ChatGPT Project (collection) per workspace. Same Codex conversation
+     reuses the ChatGPT chat URL saved in THIS thread. A new Codex
+     conversation opens a new chat from the Project collection page — never
+     `goto` `https://chatgpt.com/` to create it, and never reuse another
+     Codex conversation's chat URL just because `session.url` exists.
+   Each workspace also has exactly ONE ChatGPT connector. Do not create a
+   second connector for the same workspace. Other workspaces may have their
+   own connectors — never edit those.
 7. After first-time setup, never ask the user to approve writing C2C's local
    settings directory. Run `c2c sandbox-allow --json` (idempotent). If it fails
    with EPERM / Operation not permitted, request elevated permissions and retry
@@ -89,12 +98,16 @@ that close the tab, hide the window, or stall on the settings page.
    - 开发人员模式: `https://chatgpt.com/#settings/Security`
    - 插件总管: `https://chatgpt.com/plugins`
    - 加插件: `https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins`
-   - 新对话 (only if no saved session): `https://chatgpt.com/`
-   - Saved C2C chat: the URL from `c2c session`
+   - 新对话 (long-chat only, and only if no saved chat): `https://chatgpt.com/`
+   - Saved C2C chat: `conversation.chatUrl` / `session.url` (long-chat, or
+     the chat already bound in THIS Codex conversation)
+   - Saved Project collection: `conversation.projectUrl`
+     (`https://chatgpt.com/g/g-p-…/project`)
    Never click Reconnect / Refresh on an existing connector. The old address is
    dead and that page hangs on "This site cannot be reached". When the address
    changed: Delete THIS workspace's `connectorName` only, then create it again
-   via the 加插件 URL (same name, new Server URL).
+   via the 加插件 URL (same name, new Server URL). Do not put that public
+   address into Project instructions — write the connector **name** only.
 
 5. **Do not wait for 8 tools** on the settings page. "Connected" / authorize
    success / pairing accepted is enough. Confirm tools in the conversation with
@@ -222,8 +235,9 @@ Speak only of 临时地址 / 固定域名 / 登录 Cloudflare.
      Fill the known form in one script when you can. Then Connect / Authorize
      and type the pairing code. As soon as it shows Connected / authorized /
      pairing accepted, continue — do NOT wait for 8 tools on this page.
-5. Same tab: `goto` `https://chatgpt.com/` (this IS the C2C conversation, not a
-   throwaway). Confirm Chat mode per **In-app browser** §7 (if it is Work,
+5. Same tab: open the first C2C chat per **Conversation management**
+   (Project collection for a new workspace; `https://chatgpt.com/` only
+   in long-chat). Confirm Chat mode per **In-app browser** §7 (if it is Work,
    open a new Chat conversation instead). Send the boot prompt from
    `docs/protocol.md` §Boot Prompt, then (same chat) send:
    `Use the "<connectorName>" connector: call workspace_info and read hello-style top-level file. Reply with the workspace name.`
@@ -247,40 +261,138 @@ Ready.
 If a login wall appears (ChatGPT, Cloudflare): stop, tell the user the ONE thing
 to do ("请登录 ChatGPT，完成后告诉我'好了'"), then continue.
 
-## Conversation management (one chat per workspace)
+## Conversation management
 
-The workspace has ONE long-lived C2C conversation in ChatGPT. Do not open a new
-chat per task or per Codex session.
+`c2c session -w <ws> --json` → `{ session, conversation }`.
+`conversation.mode` is the only switch. Missing / legacy files with a chat URL
+and no Project stay **long-chat**. Do not ask those users to migrate. If they
+later say they want a Project, run **Bind Project**. A brand-new workspace
+(no session file) is **project**.
 
-- **Find it**: `c2c session -w <ws> --json` → `{ session: { url, taskId, ... } }`.
-  If a session exists, `goto` that URL on the same iab tab (foreground +
-  markHandoff) and continue there.
-- **Save it**: after creating a new C2C chat, sending the boot prompt and the
-  workspace_info check, and confirming the reply names the current workspace,
-  read the conversation URL from the iab address bar (visible UI state only)
-  and run `c2c session set -w <ws> --url <url> --title "C2C <workspace name>"`.
+Never match a Project or a chat by display name. Never upload the repo to
+Project sources. Never click 分享 / Share. Do not rename ChatGPT chats.
+
+### long-chat (do not rewrite this path)
+
+ONE ChatGPT conversation per workspace. Same as before.
+
+- **Find it**: if `conversation.reuseSavedChat` and `conversation.chatUrl`,
+  `goto` that URL (foreground + markHandoff) and continue there.
+- **Save it**: after boot + workspace_info, and the reply names this workspace,
+  `c2c session set -w <ws> --mode long-chat --url <url> --title "C2C <workspace name>"`.
   If the name does not match, do not overwrite a previously saved URL.
-- **Update it**: after each EXECUTED/DONE, run
+- **Update it**: after each EXECUTED/DONE,
   `c2c session set -w <ws> --task <id> --iteration <n> --state <STATE>`.
-- **Switch it** ONLY when (a) the user explicitly asks for a new chat,
-  (b) the current chat has become so long it visibly lags, or (c) this
-  conversation is Work — Work cannot become Chat, so open a new Chat
-  conversation. When switching:
+- **Switch it** ONLY when (a) the user asks for a new chat, (b) the current
+  chat visibly lags, or (c) this conversation is Work. Then:
   1. Same iab tab: `goto` `https://chatgpt.com/`, confirm Chat mode
      (**In-app browser** §7), then send the boot prompt.
-  2. Immediately send a HANDOFF message (template in `docs/protocol.md`) —
-     a short brief of: original goal, iterations so far, what is already DONE,
-     current state, known issues, and the next expected step. The new chat must
-     be able to continue the task without re-asking anything; it re-reads code
-     via MCP, so never paste files into the handoff.
-  3. In that same replacement chat, send the workspace_info check from the
-     setup flow and wait for a reply that matches the current workspace name.
-     Only then `c2c session set` with the new URL. If validation fails, leave
-     the old saved URL unchanged.
-- If the saved chat 404s or was deleted, treat it as a switch: new Chat chat +
-  boot prompt + HANDOFF reconstructed from `c2c session get` and recent
-  `execution_summary` records, then the same workspace_info check before
-  updating the binding.
+  2. Send a HANDOFF (`docs/protocol.md`) — goal, progress, state, issues,
+     next step. Never paste files.
+  3. workspace_info check; only then `c2c session set --url`. On failure,
+     leave the old URL unchanged.
+- Saved chat 404s: treat as a switch. Reconstruct HANDOFF from `c2c session`
+  and recent `execution_summary`.
+
+### project (new workspaces)
+
+One ChatGPT Project per workspace. Mapping:
+
+1. Same Codex conversation (this thread still has context) → same ChatGPT
+   chat URL. `goto` that URL directly. Do not open the collection first.
+2. Same workspace, a **new** Codex conversation → new ChatGPT chat from the
+   collection page (`conversation.projectUrl`). Ignore `session.url` unless
+   you already saved it earlier in THIS Codex thread.
+3. Different workspace → different Project and different connector.
+
+**Open a chat in this Codex thread**
+
+- If you already saved a ChatGPT chat URL earlier in THIS Codex conversation:
+  `goto` that URL. Continue. No new chat. No HANDOFF.
+- Else if `conversation.projectReady`: `goto` `conversation.projectUrl`.
+  On that page, use the on-page composer (「{项目名}中的新聊天」 / "New chat
+  in …"). Do not use the sidebar and do not `goto` `https://chatgpt.com/`.
+  Confirm Chat mode (**In-app browser** §7). Boot prompt, then workspace_info
+  with the **exact** `connectorName`. After the reply names this workspace,
+  `c2c session set -w <ws> --mode project --project-url <collection> --url <chat> --connector-name "<connectorName>" --title "C2C <workspace name>"`.
+  If this Codex thread is continuing a previous C2C task, send HANDOFF right
+  after the boot prompt.
+- Else: **Bind Project** first.
+
+**Update it**: same `c2c session set --task / --iteration / --state` as long-chat.
+
+**Wrong collection**: do not guess another Project. Tell the user the expected
+workspace name, ask them to open the right collection, then say「已找到」.
+Also offer「继续用长对话」. If they pick long-chat:
+`c2c session set -w <ws> --mode long-chat` and use the long-chat path.
+If the collection 404s or the new chat is not inside the Project, same choice.
+
+**Saved chat 404s** (this thread): `goto` the collection, open a new chat
+there, boot + HANDOFF + workspace_info, then save the new chat URL. Keep
+`--project-url`.
+
+### Bind Project (user creates the collection once)
+
+Do this for a new workspace, or when an existing user asks to switch to
+Project. Do **not** click the ChatGPT sidebar to create the Project
+(Computer Use is forbidden; IAB must not hunt that menu).
+
+1. Tell the user exactly this (fill in the workspace name):
+
+```
+请在 ChatGPT 里新建一个项目，名字用「<workspaceName>」，记忆请选「仅限项目记忆」。
+
+如果侧栏里看不到「项目」：把鼠标放在「聊天」上，点右边出现的三个点，选择「按项目整理」。
+
+建好后会打开合集页面。看到页面后跟我说「好了」。
+```
+
+2. Wait for「好了」/ the collection page. Same iab tab: read the address bar.
+   It must look like `https://chatgpt.com/g/g-p-…/project`. If it does not,
+   ask them to open that project until it does. Then:
+   `c2c session set -w <ws> --mode project --project-url <url> --connector-name "<connectorName>"`.
+
+3. On that same collection page only, open 右上角 **… → 项目设置**.
+   Do not click 分享. Do not add 来源 / files.
+   - 记忆: 仅限项目记忆 (project-only). Leave 库访问权限 disabled.
+   - 指令: paste **Project instructions** below (fill `{{…}}` from
+     `workspace_info` / setup). Use the exact `connectorName` from setup.
+     Never write the public / temporary address into 指令.
+   Save and close settings.
+
+4. Still on the collection page, create the first chat with the on-page
+   composer, then boot + workspace_info as in setup step 5. Save the chat URL.
+
+### Project instructions (paste into 项目设置 → 指令)
+
+```
+You are the planning and review layer for one local workspace. Codex executes.
+
+This Project is bound only to:
+- Workspace name: {{workspace_name}}
+- Kind: {{project_type}} ({{languages}} / {{frameworks}})
+- Connector (use this one only): {{connector_name}}
+
+When you call tools, use ONLY that connector. Do not use any other
+Codex with ChatGPT connector. If workspace_info names a different
+workspace, stop. Do not plan. Do not use this Project's memory.
+
+Read code, git, and diffs through that connector. Never ask anyone to
+paste file bodies, diffs, or logs. Never upload the repo into this
+Project's files or sources.
+
+When facts conflict, trust this order:
+1. Current code from the connector
+2. A HANDOFF in this chat (this task's goal, progress, next step)
+3. These instructions
+4. This Project's memory (durable architecture only; stale memory loses)
+
+This Project's memory is only for this workspace. On HANDOFF, trust the
+brief, re-read code through the connector, and resume at NEXT_EXPECTED_STEP.
+
+Be substantive: why, which file, what to test. No empty one-liners and
+no 40-step epics. Use C2C control messages.
+```
 
 ## Workflow: coding task（"使用 Codex with ChatGPT 完成 XXX"）
 
@@ -298,13 +410,17 @@ ChatGPT's replies are expected to be substantive (see step 3). Docs: `docs/proto
    (one paragraph, no internals), run **Workflow: reconnect after address
    reclaim**, then doctor again and only continue when the gate is green.
    Generate task id: `c2c_` + 4 random hex chars.
-1. Open the saved C2C conversation on the same iab tab (`c2c session --json`);
-   only `goto` `https://chatgpt.com/` if none is saved. Foreground + markHandoff.
-   On a NEW conversation confirm Chat mode (**In-app browser** §7), then send
-   the boot prompt from `docs/protocol.md` §Boot Prompt and the workspace_info
-   check. Confirm the reply names the current workspace before saving the
-   session URL. Do not use the browser to re-read code MCP already provides.
-   After sending a control message, wait per **In-app browser** §8.
+1. `c2c session -w <workspace> --json`. Open ChatGPT on the same iab tab
+   per **Conversation management** for `conversation.mode` (foreground +
+   markHandoff). long-chat: saved chat, or `https://chatgpt.com/` if none.
+   project: this thread's chat URL, or the collection page for a new chat,
+   or **Bind Project** if `projectReady` is false. On a NEW conversation
+   confirm Chat mode (**In-app browser** §7), then send the boot prompt from
+   `docs/protocol.md` §Boot Prompt and the workspace_info check (name the
+   exact `connectorName`). Confirm the reply names the current workspace
+   before saving the session URL. Do not use the browser to re-read code MCP
+   already provides. After sending a control message, wait per
+   **In-app browser** §8.
 2. Send INIT with the user's goal:
 
 ```
@@ -401,11 +517,17 @@ the previous public address is gone. Doctor already started a new one.
      (or `c2c pair --json` if it expired). Continue as soon as it is Connected —
      do not wait for 8 tools on the settings page.
    - If the name is already gone, skip Delete and only create.
-4. `c2c doctor --json` again. Same tab: `goto` the saved conversation
-   (`c2c session`) only after the Doctor gate is green. Do not start a new
-   audit/task chat just because the address changed.
-5. If the ChatGPT conversation was lost, follow Conversation management → Switch:
-   new chat, boot prompt, HANDOFF. No file re-uploading (the workspace lives in MCP).
+4. `c2c doctor --json` again. Same tab: only after the Doctor gate is green,
+   reopen the chat this Codex thread was already using (`session.url` /
+   the URL you saved earlier in THIS thread). Do not start a new
+   audit/task chat just because the address changed. Do not rewrite Project
+   instructions — they store the connector **name**, which did not change.
+5. If the ChatGPT conversation was lost: long-chat → Conversation
+   management switch. project → collection page, new chat, boot + HANDOFF.
+   No file re-uploading (the workspace lives in MCP). After recreating the
+   same-name connector, the Project still uses that name. If tools point at
+   the wrong connector, open 项目设置 and confirm 指令 still names
+   `connectorName` (never paste the new public address).
 
 ## Workflow: repair（anything looks broken）
 
@@ -429,3 +551,5 @@ the previous public address is gone. Doctor already started a new one.
 | Port conflict | handled automatically; never surface to the user |
 | Every new chat “repairs” / cannot write the log or settings directory | `c2c sandbox-allow --json` (once). Do not ask the user. |
 | cloudflared missing | install it yourself (brew/winget), then retry |
+| Sidebar has no「项目」 | Ask the user to hover「聊天」, click the …, choose「按项目整理」 |
+| Collection page is the wrong Project | Ask the user to open the named collection and say「已找到」, or accept long-chat |
