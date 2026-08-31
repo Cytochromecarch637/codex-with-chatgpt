@@ -88,6 +88,9 @@ whatever data it needs by itself.
    - `chatgptRepair.needed` is true (fix the connector first, then doctor again)
    - `namedRepair.needed` is true (user must login to Cloudflare, then doctor again.
      Do not Delete the ChatGPT connector — the address did not change)
+   - `report.bridge` says 状态无法确认: the local bridge may still be running.
+     Do not `c2c start`, do not Delete the connector, do not treat it as
+     `chatgptRepair`. Wait and run doctor again.
    A ChatGPT-side 401 after a sent message is different: repair then, do not
    treat it as permission to skip this gate next time.
 

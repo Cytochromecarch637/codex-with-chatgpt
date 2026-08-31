@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startBridge } from "../bridge/server.js";
-import { findLiveBridge, probeBridge, readRuntimeState, type RuntimeState } from "../bridge/runtime.js";
+import { findBridgeObservation, findLiveBridge, type RuntimeState } from "../bridge/runtime.js";
 import { adminFetch, ensureBridge, stopBridge } from "../process/daemon.js";
 import { Workspace } from "../workspace/manager.js";
 import { AuthStore } from "../auth/store.js";
@@ -354,12 +354,21 @@ program
   .action(async (opts: { workspace?: string; json: boolean }) => {
     const root = resolveWorkspace(opts.workspace);
     const workspace = new Workspace(root);
-    const runtime = await findLiveBridge(workspace.id);
-    if (!runtime) {
+    const observation = await findBridgeObservation(workspace.id);
+    if (observation.state === "unknown") {
+      if (opts.json) {
+        say(JSON.stringify({ ok: false, running: null, state: "unknown", reason: observation.reason }));
+      } else {
+        cross(`Bridge 状态无法确认（${observation.reason}），未将其视为未运行。`);
+      }
+      return;
+    }
+    if (observation.state === "stopped") {
       if (opts.json) say(JSON.stringify({ ok: false, running: false }));
       else say("Bridge 未运行。使用 `c2c start` 启动。");
       return;
     }
+    const runtime = observation.runtime;
     const info = await adminFetch<AdminInfo>(runtime, "GET", "/admin/info");
     if (opts.json) {
       say(JSON.stringify({ ok: true, running: true, ...info }));
@@ -422,9 +431,15 @@ program
 
     // Bridge
     let runtime: RuntimeState | null = null;
+    let bridgeUnknown = false;
     if (workspace) {
-      runtime = await findLiveBridge(workspace.id);
-      if (!runtime && opts.fix) {
+      const observation = await findBridgeObservation(workspace.id);
+      if (observation.state === "healthy") {
+        runtime = observation.runtime;
+      } else if (observation.state === "unknown") {
+        bridgeUnknown = true;
+        report.bridge = { ok: false, detail: `状态无法确认（${observation.reason}），未自动修复` };
+      } else if (opts.fix) {
         try {
           runtime = (await ensureBridge(root)).runtime;
           results.push("已自动启动 Bridge");
@@ -594,6 +609,8 @@ program
       } else {
         report.tunnel = { ok: false, detail: "公网地址无法访问" };
       }
+    } else if (bridgeUnknown) {
+      report.tunnel = report.tunnel ?? { ok: false, detail: "Bridge 状态无法确认，未执行连接器修复" };
     } else if (namedReady) {
       report.tunnel = { ok: false, detail: "NAMED_TUNNEL_DOWN" };
       namedRepair = { needed: true, userMessage: NAMED_REPAIR_MESSAGE };

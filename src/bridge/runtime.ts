@@ -66,12 +66,45 @@ export async function probeBridge(
   }
 }
 
+export type BridgeObservation =
+  | { state: "healthy"; runtime: RuntimeState }
+  | { state: "stopped"; runtime: RuntimeState | null; reason: "runtime_missing" | "pid_missing" }
+  | { state: "unknown"; runtime: RuntimeState | null; reason: "probe_failed" | "pid_unknown" | "workspace_mismatch" };
+
+function observePid(pid: number): "present" | "missing" | "unknown" {
+  if (!Number.isInteger(pid) || pid <= 0) return "unknown";
+  try {
+    process.kill(pid, 0);
+    return "present";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? "missing" : "unknown";
+  }
+}
+
+/**
+ * Distinguish a dead bridge from a probe that simply failed.
+ * Read-only: never starts, stops, or clears runtime.
+ */
+export async function findBridgeObservation(workspaceId: string): Promise<BridgeObservation> {
+  const runtime = readRuntimeState(workspaceId);
+  if (!runtime) return { state: "stopped", runtime: null, reason: "runtime_missing" };
+
+  const health = await probeBridge(runtime.port);
+  if (health && health.workspaceId === workspaceId) {
+    return { state: "healthy", runtime };
+  }
+  if (health) {
+    return { state: "unknown", runtime, reason: "workspace_mismatch" };
+  }
+
+  const pid = observePid(runtime.pid);
+  if (pid === "missing") return { state: "stopped", runtime, reason: "pid_missing" };
+  return { state: "unknown", runtime, reason: pid === "unknown" ? "pid_unknown" : "probe_failed" };
+}
+
 export async function findLiveBridge(workspaceId: string): Promise<RuntimeState | null> {
-  const state = readRuntimeState(workspaceId);
-  if (!state) return null;
-  const health = await probeBridge(state.port);
-  if (health && health.workspaceId === workspaceId) return state;
-  return null;
+  const observation = await findBridgeObservation(workspaceId);
+  return observation.state === "healthy" ? observation.runtime : null;
 }
 
 export { SERVICE_NAME, VERSION };

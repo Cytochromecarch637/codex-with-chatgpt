@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDir, getStateDir } from "../config/paths.js";
-import { findLiveBridge, probeBridge, readRuntimeState, type RuntimeState } from "../bridge/runtime.js";
+import { findBridgeObservation, findLiveBridge, probeBridge, readRuntimeState, type RuntimeState } from "../bridge/runtime.js";
 import { Workspace } from "../workspace/manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,8 +31,13 @@ export interface EnsureBridgeResult {
  */
 export async function ensureBridge(workspaceRoot: string, opts: { port?: number } = {}): Promise<EnsureBridgeResult> {
   const workspace = new Workspace(workspaceRoot);
-  const live = await findLiveBridge(workspace.id);
-  if (live) return { runtime: live, spawned: false };
+  const observation = await findBridgeObservation(workspace.id);
+  if (observation.state === "healthy") return { runtime: observation.runtime, spawned: false };
+  if (observation.state === "unknown") {
+    throw new Error(
+      `Bridge state is uncertain (${observation.reason}); refusing to start another bridge.`
+    );
+  }
 
   const logDir = ensureDir(path.join(getStateDir(), "logs"));
   const logFile = path.join(logDir, `bridge-${workspace.id}.out.log`);
