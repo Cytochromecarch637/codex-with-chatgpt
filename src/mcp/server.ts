@@ -5,6 +5,7 @@ import { Workspace, WorkspaceError } from "../workspace/manager.js";
 import { searchWorkspace } from "../workspace/search.js";
 import { gitDiff, gitInfo, gitStatus, type DiffMode } from "../workspace/git.js";
 import { latestExecutionRecord, readExecutionRecords } from "../execution/records.js";
+import { listExecutionOutputs, readExecutionOutput } from "../execution/output.js";
 import type { Logger } from "../logger/index.js";
 import { PRODUCT_NAME, VERSION } from "../version.js";
 
@@ -246,6 +247,8 @@ export function createMcpServer(ctx: McpContext): McpServer {
         tests: latest.tests,
         exitStatus: latest.exitStatus,
         timestamp: latest.timestamp,
+        outputAvailable: Boolean(latest.outputAvailable),
+        outputId: latest.outputId ?? null,
       });
     }
   );
@@ -266,6 +269,59 @@ export function createMcpServer(ctx: McpContext): McpServer {
       const denied = requireScope(extra.authInfo, "execution.read");
       if (denied) return denied;
       return ok({ records: readExecutionRecords(workspace.id, args.limit) });
+    }
+  );
+
+  server.registerTool(
+    "execution_output",
+    {
+      title: "Execution output",
+      description:
+        `List or read command output that Codex chose to record after a test/build/lint/typecheck ` +
+        `run. Call with action=list first, then action=read and an id. Restricted items have no ` +
+        `body. This does not run commands. ${UNTRUSTED_NOTE}`,
+      inputSchema: {
+        action: z.enum(["list", "read"]).default("list"),
+        id: z.number().int().positive().optional(),
+        limit: z.number().int().min(1).max(50).default(20),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args, extra) => {
+      const denied = requireScope(extra.authInfo, "execution.read");
+      if (denied) return denied;
+      const action = args.action ?? "list";
+      if (action === "list") {
+        const items = listExecutionOutputs(workspace.id, args.limit).map((item) => ({
+          id: item.id,
+          command: item.command,
+          exitCode: item.exitCode,
+          timestamp: item.timestamp,
+          taskId: item.taskId ?? null,
+          iteration: item.iteration ?? null,
+          readable: item.allowed,
+          status: item.allowed ? "readable" : "restricted",
+          truncated: item.truncated,
+          sizeBytes: item.sizeBytes,
+        }));
+        return ok({ items });
+      }
+      if (args.id === undefined) return fail("INVALID_ARGUMENTS", "read requires id");
+      const result = readExecutionOutput(workspace.id, args.id);
+      if (!result.ok) {
+        if (result.error === "OUTPUT_RESTRICTED") {
+          return fail("OUTPUT_RESTRICTED", "This output was not released for ChatGPT to read.");
+        }
+        return fail("NOT_FOUND", `No execution output with id ${args.id}.`);
+      }
+      return ok({
+        id: result.meta.id,
+        command: result.meta.command,
+        exitCode: result.meta.exitCode,
+        timestamp: result.meta.timestamp,
+        truncated: result.meta.truncated,
+        text: result.text,
+      });
     }
   );
 

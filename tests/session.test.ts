@@ -93,6 +93,87 @@ describe("mergeSession", () => {
     expect(next.taskId).toBe("c2c_ab12");
   });
 
+  it("writes and clears a checkpoint without dropping the chat URL", () => {
+    const withCheckpoint = mergeSession(
+      {
+        url: "https://chatgpt.com/c/keep",
+        taskId: "c2c_ab12",
+        iteration: 7,
+        savedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        checkpoint: {
+          protocolState: "EXECUTED_SENT",
+          waitingFor: "GPT_REVIEW",
+          originalGoal: "dark mode",
+          nextExpectedStep: "wait for review",
+        },
+      }
+    );
+    expect(withCheckpoint.url).toBe("https://chatgpt.com/c/keep");
+    expect(withCheckpoint.checkpoint?.protocolState).toBe("EXECUTED_SENT");
+    expect(withCheckpoint.checkpoint?.waitingFor).toBe("GPT_REVIEW");
+    expect(withCheckpoint.checkpoint?.taskId).toBe("c2c_ab12");
+    const cleared = mergeSession(withCheckpoint, { clearCheckpoint: true });
+    expect(cleared.checkpoint).toBeUndefined();
+    expect(cleared.url).toBe("https://chatgpt.com/c/keep");
+  });
+
+  it("keeps an existing checkpoint when only the chat URL is updated", () => {
+    const previous = mergeSession(
+      {
+        url: "https://chatgpt.com/c/keep",
+        taskId: "c2c_ab12",
+        iteration: 7,
+        savedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        checkpoint: {
+          protocolState: "EXECUTED_SENT",
+          waitingFor: "GPT_REVIEW",
+          originalGoal: "dark mode",
+        },
+      }
+    );
+    const next = mergeSession(previous, { url: "https://chatgpt.com/c/new" });
+    expect(next.url).toBe("https://chatgpt.com/c/new");
+    expect(next.checkpoint?.protocolState).toBe("EXECUTED_SENT");
+    expect(next.checkpoint?.originalGoal).toBe("dark mode");
+  });
+
+  it("caps checkpoint text so it cannot become a log dump", () => {
+    const next = mergeSession(
+      {
+        url: "https://chatgpt.com/c/keep",
+        taskId: "c2c_ab12",
+        savedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        checkpoint: {
+          protocolState: "PLAN_RECEIVED",
+          originalGoal: "x".repeat(600),
+        },
+      }
+    );
+    expect(next.checkpoint?.originalGoal?.length).toBeLessThanOrEqual(501);
+    expect(next.checkpoint?.originalGoal?.endsWith("…")).toBe(true);
+  });
+
+  it("leaves legacy sessions without a checkpoint unchanged", () => {
+    const next = mergeSession(
+      {
+        url: "https://chatgpt.com/c/old",
+        taskId: "c2c_aa01",
+        iteration: 2,
+        lastState: "EXECUTED",
+        savedAt: "2026-01-01T00:00:00.000Z",
+      },
+      { iteration: 3, lastState: "EXECUTED" }
+    );
+    expect(next.checkpoint).toBeUndefined();
+    expect(next.taskId).toBe("c2c_aa01");
+  });
+
   it("rejects a non-collection project URL", () => {
     expect(() =>
       mergeSession(null, {
@@ -121,12 +202,21 @@ describe("clearChatPointer", () => {
       projectUrl: PROJECT,
       url: "https://chatgpt.com/c/gone",
       connectorName: "Codex with ChatGPT · Demo",
+      checkpoint: {
+        taskId: "c2c_ab12",
+        iteration: 4,
+        protocolState: "EXECUTED_SENT",
+        waitingFor: "GPT_REVIEW",
+        originalGoal: "dark mode",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
       savedAt: "2026-01-01T00:00:00.000Z",
     });
     expect(clearChatPointer("abc123abc123")).toEqual({ cleared: true, keptProject: true });
     const saved = readSession("abc123abc123");
     expect(saved?.projectUrl).toBe(PROJECT);
     expect(saved?.url).toBeUndefined();
+    expect(saved?.checkpoint?.protocolState).toBe("EXECUTED_SENT");
   });
 
   it("deletes a legacy long-chat file", () => {

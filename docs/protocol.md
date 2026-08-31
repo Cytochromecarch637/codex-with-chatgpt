@@ -23,6 +23,29 @@ INIT → PLAN → EXECUTING → EXECUTED → REVIEW → PLAN | DONE | BLOCKED | 
 | ERROR | either | Protocol/infrastructure failure |
 | HANDOFF | Codex | Continuation brief sent to a replacement conversation |
 
+There is no `STATE: RESUME`. If Codex restarts mid-task, it reads a **local
+checkpoint** on the session file (`protocolState`, `waitingFor`, goal, issues,
+next step). Those values are not ChatGPT protocol states. ChatGPT still sees
+only the table above. If the original chat is gone, Codex sends HANDOFF
+built from the checkpoint (never from logs).
+
+Local checkpoint values (session only):
+
+| Checkpoint | Meaning |
+| --- | --- |
+| `INIT` | INIT sent; waiting for PLAN |
+| `PLAN_RECEIVED` | PLAN in hand; not finished executing |
+| `EXECUTING` | Codex is applying the current PLAN |
+| `EXECUTED_LOCAL` | Recorded locally; EXECUTED not yet typed |
+| `EXECUTED_SENT` | EXECUTED typed; waiting for review |
+| `DONE` / `BLOCKED` | Terminal; DONE should `--clear-checkpoint` |
+
+Legacy sessions without a checkpoint keep the old loop. The first normal
+iteration after this version writes a checkpoint automatically.
+
+Do not re-pair, recreate the connector, or rewrite Project instructions
+just to resume.
+
 ## Message format
 
 Every control message starts with `[C2C]` and key-value headers, then sections.
@@ -93,11 +116,19 @@ TESTS:
 27 passed
 
 Please independently inspect the workspace and current git diff through MCP.
+If execution_output lists a readable item for this iteration, list then read it.
+If status is restricted, ignore it and review from git_diff.
 ```
 
 Before sending EXECUTED, Codex records the iteration:
 `c2c record --task c2c_f81a --iteration 1 --changed-files ... --tests ... --exit-status ok`
-so ChatGPT can read it via the `execution_summary` / `test_status` tools.
+and, when a test/build/lint/typecheck was run, `--command` plus `--output-file`.
+ChatGPT reads metadata via `execution_summary` / `test_status`. Command output
+is a separate opt-in: `execution_output` (`list` then `read`). Codex nominates
+the log; a **local sanitizer** decides whether ChatGPT may see the body
+(tokens/paths redacted; private keys withheld entirely; size/line caps).
+Restricted items appear in `list` with no body. Old records without output
+stay valid. Never paste logs into the control message.
 
 ### DONE / BLOCKED (ChatGPT → Codex)
 
@@ -192,6 +223,9 @@ Rules:
 4. Produce concise executable plans.
 5. Codex will execute your plan using its own harness.
 6. After Codex reports EXECUTED, independently inspect the diff.
+   If execution_output lists a readable item for this iteration, list
+   then read it. If status is restricted, ignore the body and review
+   from git.
 7. Do not assume an implementation succeeded just because Codex says so.
 8. Continue until the implementation satisfies the success criteria.
 9. Avoid unnecessary rewrites.
@@ -227,9 +261,11 @@ When you call tools, use ONLY that connector. Do not use any other
 Codex with ChatGPT connector. If workspace_info names a different
 workspace, stop. Do not plan. Do not use this Project's memory.
 
-Read code, git, and diffs through that connector. Never ask anyone to
-paste file bodies, diffs, or logs. Never upload the repo into this
-Project's files or sources.
+Read code, git, diffs, and any released command output through that
+connector. Never ask anyone to paste file bodies, diffs, or logs. After
+EXECUTED, call execution_output (list, then read) when a readable item
+exists; if status is restricted, review from git instead. Never upload
+the repo into this Project's files or sources.
 
 When facts conflict, trust this order:
 1. Current code from the connector

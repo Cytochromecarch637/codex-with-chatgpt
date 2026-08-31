@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startBridge, type Bridge } from "../src/bridge/server.js";
 import { appendExecutionRecord } from "../src/execution/records.js";
+import { saveExecutionOutput } from "../src/execution/output.js";
 import { makeTmpDir, cleanup, write, makeGitRepo, git, isolateStateDir } from "./helpers.js";
 
 let root: string;
@@ -55,10 +56,11 @@ afterAll(async () => {
 });
 
 describe("MCP tools over Streamable HTTP", () => {
-  it("lists all eight read-only tools", async () => {
+  it("lists all nine read-only tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
     expect(names).toEqual([
+      "execution_output",
       "execution_summary",
       "git_diff",
       "git_status",
@@ -166,11 +168,52 @@ describe("MCP tools over Streamable HTTP", () => {
     );
     expect(summary.records[0].taskId).toBe("c2c_test1");
 
-    const status = jsonOf<{ available: boolean; tests: string }>(
+    const status = jsonOf<{ available: boolean; tests: string; outputAvailable: boolean; outputId: number | null }>(
       await client.callTool({ name: "test_status", arguments: {} })
     );
     expect(status.available).toBe(true);
     expect(status.tests).toBe("27 passed");
+    expect(status.outputAvailable).toBe(false);
+    expect(status.outputId).toBeNull();
+  });
+
+  it("execution_output lists readable items and refuses restricted bodies", async () => {
+    const readable = saveExecutionOutput(bridge.workspace.id, {
+      command: "pnpm test",
+      raw: "FAIL src/a.test.ts\nAssertionError: expected true",
+      exitCode: 1,
+    });
+    const hidden = saveExecutionOutput(bridge.workspace.id, {
+      command: "print-key",
+      raw: "-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY-----",
+      exitCode: 0,
+    });
+    const list = jsonOf<{ items: { id: number; status: string; command: string; text?: string }[] }>(
+      await client.callTool({ name: "execution_output", arguments: { action: "list" } })
+    );
+    expect(list.items.some((item) => item.id === readable.id && item.status === "readable")).toBe(true);
+    expect(list.items.some((item) => item.id === hidden.id && item.status === "restricted")).toBe(true);
+    expect(list.items.every((item) => item.text === undefined)).toBe(true);
+
+    const body = jsonOf<{ text: string }>(
+      await client.callTool({ name: "execution_output", arguments: { action: "read", id: readable.id } })
+    );
+    expect(body.text).toContain("AssertionError");
+
+    const denied = await client.callTool({
+      name: "execution_output",
+      arguments: { action: "read", id: hidden.id },
+    });
+    expect(denied.isError).toBe(true);
+    expect(textOf(denied)).toContain("OUTPUT_RESTRICTED");
+    expect(textOf(denied)).not.toContain("BEGIN RSA");
+
+    const missing = await client.callTool({
+      name: "execution_output",
+      arguments: { action: "read", id: 999999 },
+    });
+    expect(missing.isError).toBe(true);
+    expect(textOf(missing)).toContain("NOT_FOUND");
   });
 
   it("enforces scopes per tool", async () => {
@@ -183,6 +226,12 @@ describe("MCP tools over Streamable HTTP", () => {
     const denied = await limitedClient.callTool({ name: "git_diff", arguments: {} });
     expect(denied.isError).toBe(true);
     expect(textOf(denied)).toContain("INSUFFICIENT_SCOPE");
+    const outputDenied = await limitedClient.callTool({
+      name: "execution_output",
+      arguments: { action: "list" },
+    });
+    expect(outputDenied.isError).toBe(true);
+    expect(textOf(outputDenied)).toContain("INSUFFICIENT_SCOPE");
     const allowed = await limitedClient.callTool({ name: "read_file", arguments: { path: "hello.txt" } });
     expect(allowed.isError ?? false).toBe(false);
     await limitedClient.close();

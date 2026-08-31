@@ -15,6 +15,9 @@ export interface ExecutionRecord {
   exitStatus: "ok" | "failed" | "blocked" | string;
   timestamp: string;
   notes?: string;
+  /** Present when Codex recorded a sanitized command output for this iteration. */
+  outputId?: number;
+  outputAvailable?: boolean;
 }
 
 function recordsFile(workspaceId: string): string {

@@ -6,6 +6,43 @@ export type ConversationMode = "long-chat" | "project";
 
 export type ConversationReason = "existing-long-chat" | "project" | "new-workspace";
 
+export type ProtocolState =
+  | "INIT"
+  | "PLAN_RECEIVED"
+  | "EXECUTING"
+  | "EXECUTED_LOCAL"
+  | "EXECUTED_SENT"
+  | "DONE"
+  | "BLOCKED";
+
+export type WaitingFor = "none" | "GPT_PLAN" | "GPT_REVIEW" | "USER";
+
+export const PROTOCOL_STATES: readonly ProtocolState[] = [
+  "INIT",
+  "PLAN_RECEIVED",
+  "EXECUTING",
+  "EXECUTED_LOCAL",
+  "EXECUTED_SENT",
+  "DONE",
+  "BLOCKED",
+];
+
+export const WAITING_FOR: readonly WaitingFor[] = ["none", "GPT_PLAN", "GPT_REVIEW", "USER"];
+
+export interface TaskCheckpoint {
+  taskId: string;
+  iteration: number;
+  protocolState: ProtocolState;
+  waitingFor: WaitingFor;
+  originalGoal?: string;
+  completedSubtasks?: string;
+  knownIssues?: string;
+  nextExpectedStep?: string;
+  chatUrl?: string;
+  projectUrl?: string;
+  updatedAt: string;
+}
+
 export interface SavedSession {
   url?: string;
   title?: string;
@@ -16,6 +53,7 @@ export interface SavedSession {
   conversationMode?: ConversationMode;
   projectUrl?: string;
   connectorName?: string;
+  checkpoint?: TaskCheckpoint;
 }
 
 export interface SessionPatch {
@@ -27,6 +65,8 @@ export interface SessionPatch {
   conversationMode?: ConversationMode;
   projectUrl?: string;
   connectorName?: string;
+  checkpoint?: Partial<TaskCheckpoint> & { protocolState?: ProtocolState };
+  clearCheckpoint?: boolean;
 }
 
 export interface ConversationView {
@@ -122,6 +162,20 @@ export function resolveConversation(session: SavedSession | null): ConversationV
   };
 }
 
+const CHECKPOINT_LIMITS = {
+  originalGoal: 500,
+  completedSubtasks: 800,
+  knownIssues: 800,
+  nextExpectedStep: 400,
+} as const;
+
+function capCheckpointText(value: string | undefined, max: number): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
 export function mergeSession(previous: SavedSession | null, patch: SessionPatch): SavedSession {
   const conversationMode = patch.conversationMode ?? previous?.conversationMode;
   const rawProjectUrl = patch.projectUrl ?? previous?.projectUrl;
@@ -142,8 +196,58 @@ export function mergeSession(previous: SavedSession | null, patch: SessionPatch)
   const hasChat = Boolean(url);
   const hasProject = Boolean(projectUrl);
   const hasTask = Boolean(patch.taskId ?? previous?.taskId);
-  if (!hasChat && !hasProject && conversationMode !== "long-chat" && !hasTask) {
+  const hasCheckpoint = Boolean(patch.checkpoint || patch.clearCheckpoint || previous?.checkpoint);
+  if (!hasChat && !hasProject && conversationMode !== "long-chat" && !hasTask && !hasCheckpoint) {
     throw new Error("nothing to save: pass --url, --project-url, or --mode");
+  }
+
+  let checkpoint = previous?.checkpoint;
+  if (patch.clearCheckpoint) {
+    checkpoint = undefined;
+  } else if (patch.checkpoint) {
+    const taskId = patch.checkpoint.taskId ?? patch.taskId ?? previous?.checkpoint?.taskId ?? previous?.taskId;
+    const iteration =
+      patch.checkpoint.iteration ??
+      patch.iteration ??
+      previous?.checkpoint?.iteration ??
+      previous?.iteration ??
+      0;
+    const protocolState = patch.checkpoint.protocolState ?? previous?.checkpoint?.protocolState;
+    if (!taskId || !protocolState) {
+      throw new Error("checkpoint requires task id and protocol state");
+    }
+    if (!PROTOCOL_STATES.includes(protocolState)) {
+      throw new Error(`protocol-state must be one of ${PROTOCOL_STATES.join(", ")}`);
+    }
+    const waitingFor = patch.checkpoint.waitingFor ?? previous?.checkpoint?.waitingFor ?? "none";
+    if (!WAITING_FOR.includes(waitingFor)) {
+      throw new Error(`waiting-for must be one of ${WAITING_FOR.join(", ")}`);
+    }
+    checkpoint = {
+      taskId,
+      iteration,
+      protocolState,
+      waitingFor,
+      originalGoal: capCheckpointText(
+        patch.checkpoint.originalGoal ?? previous?.checkpoint?.originalGoal,
+        CHECKPOINT_LIMITS.originalGoal
+      ),
+      completedSubtasks: capCheckpointText(
+        patch.checkpoint.completedSubtasks ?? previous?.checkpoint?.completedSubtasks,
+        CHECKPOINT_LIMITS.completedSubtasks
+      ),
+      knownIssues: capCheckpointText(
+        patch.checkpoint.knownIssues ?? previous?.checkpoint?.knownIssues,
+        CHECKPOINT_LIMITS.knownIssues
+      ),
+      nextExpectedStep: capCheckpointText(
+        patch.checkpoint.nextExpectedStep ?? previous?.checkpoint?.nextExpectedStep,
+        CHECKPOINT_LIMITS.nextExpectedStep
+      ),
+      chatUrl: patch.checkpoint.chatUrl ?? previous?.checkpoint?.chatUrl ?? url,
+      projectUrl: patch.checkpoint.projectUrl ?? previous?.checkpoint?.projectUrl ?? projectUrl,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   return {
@@ -155,6 +259,7 @@ export function mergeSession(previous: SavedSession | null, patch: SessionPatch)
     conversationMode: conversationMode === "project" && projectUrl ? "project" : conversationMode,
     projectUrl,
     connectorName: patch.connectorName ?? previous?.connectorName,
+    checkpoint,
     savedAt: new Date().toISOString(),
   };
 }
@@ -169,6 +274,7 @@ export function clearChatPointer(workspaceId: string): { cleared: boolean; keptP
       conversationMode: "project",
       projectUrl: view.projectUrl,
       connectorName: previous.connectorName,
+      checkpoint: previous.checkpoint,
       savedAt: new Date().toISOString(),
     });
     return { cleared: true, keptProject: true };

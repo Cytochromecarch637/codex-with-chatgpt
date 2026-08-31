@@ -8,7 +8,6 @@ import { findLiveBridge, probeBridge, readRuntimeState, type RuntimeState } from
 import { adminFetch, ensureBridge, stopBridge } from "../process/daemon.js";
 import { Workspace } from "../workspace/manager.js";
 import { AuthStore } from "../auth/store.js";
-import { appendExecutionRecord } from "../execution/records.js";
 import { detectTunnelBinaries } from "../tunnel/detect.js";
 import {
   chooseQuickTunnel,
@@ -48,8 +47,14 @@ import {
   readSession,
   resolveConversation,
   writeSession,
+  PROTOCOL_STATES,
+  WAITING_FOR,
   type ConversationMode,
+  type ProtocolState,
+  type WaitingFor,
 } from "../session/state.js";
+import { appendExecutionRecord } from "../execution/records.js";
+import { saveExecutionOutput } from "../execution/output.js";
 
 const program = new Command();
 
@@ -61,6 +66,20 @@ const cross = (msg: string): void => say(`✗ ${msg}`);
 
 function resolveWorkspace(option?: string): string {
   return path.resolve(option ?? process.cwd());
+}
+
+/** Local harness output only. Never pasted into ChatGPT. */
+const MAX_RECORD_OUTPUT_READ = 256 * 1024;
+
+function readCappedUtf8(filePath: string, maxBytes: number): string {
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, n).toString("utf8");
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function persistWorkspaceEndpoint(opts: {
@@ -825,6 +844,11 @@ session
       if (saved.url) say(`对话：${saved.url}`);
       if (saved.connectorName) say(`连接器：${saved.connectorName}`);
       if (saved.taskId) say(`任务：${saved.taskId}（第 ${saved.iteration ?? 0} 轮，${saved.lastState ?? "?"}）`);
+      if (saved.checkpoint) {
+        say(
+          `存档：${saved.checkpoint.protocolState} / 等待 ${saved.checkpoint.waitingFor}（第 ${saved.checkpoint.iteration} 轮）`
+        );
+      }
     }
   });
 
@@ -840,6 +864,13 @@ session
   .option("--mode <mode>", "long-chat or project")
   .option("--project-url <url>", "ChatGPT Project collection URL (…/g/g-p-…/project)")
   .option("--connector-name <name>", "exact connector title for this workspace")
+  .option("--protocol-state <state>", "checkpoint protocol state, e.g. EXECUTED_SENT")
+  .option("--waiting-for <who>", "none | GPT_PLAN | GPT_REVIEW | USER")
+  .option("--goal <text>", "original task goal for resume / HANDOFF")
+  .option("--completed-subtasks <text>")
+  .option("--known-issues <text>")
+  .option("--next-step <text>")
+  .option("--clear-checkpoint", "drop the active checkpoint (task DONE)", false)
   .action(
     (opts: {
       workspace?: string;
@@ -851,11 +882,31 @@ session
       mode?: string;
       projectUrl?: string;
       connectorName?: string;
+      protocolState?: string;
+      waitingFor?: string;
+      goal?: string;
+      completedSubtasks?: string;
+      knownIssues?: string;
+      nextStep?: string;
+      clearCheckpoint: boolean;
     }) => {
       const workspace = new Workspace(resolveWorkspace(opts.workspace));
       const modeRaw = opts.mode?.trim().toLowerCase();
       if (modeRaw && modeRaw !== "long-chat" && modeRaw !== "project") {
         throw new Error("mode must be long-chat or project");
+      }
+      const protocolRaw = opts.protocolState?.trim().toUpperCase();
+      if (protocolRaw && !PROTOCOL_STATES.includes(protocolRaw as ProtocolState)) {
+        throw new Error(`protocol-state must be one of ${PROTOCOL_STATES.join(", ")}`);
+      }
+      const waitingRaw = opts.waitingFor?.trim();
+      const waitingNorm = waitingRaw
+        ? waitingRaw.toLowerCase() === "none"
+          ? "none"
+          : waitingRaw.toUpperCase()
+        : undefined;
+      if (waitingNorm && !WAITING_FOR.includes(waitingNorm as WaitingFor)) {
+        throw new Error(`waiting-for must be one of ${WAITING_FOR.join(", ")}`);
       }
       const saved = mergeSession(readSession(workspace.id), {
         url: opts.url,
@@ -866,6 +917,17 @@ session
         conversationMode: modeRaw as ConversationMode | undefined,
         projectUrl: opts.projectUrl,
         connectorName: opts.connectorName,
+        clearCheckpoint: opts.clearCheckpoint,
+        checkpoint: protocolRaw
+          ? {
+              protocolState: protocolRaw as ProtocolState,
+              waitingFor: (waitingNorm as WaitingFor | undefined) ?? undefined,
+              originalGoal: opts.goal,
+              completedSubtasks: opts.completedSubtasks,
+              knownIssues: opts.knownIssues,
+              nextExpectedStep: opts.nextStep,
+            }
+          : undefined,
       });
       writeSession(workspace.id, saved);
       if (saved.projectUrl && saved.conversationMode === "project") {
@@ -898,6 +960,10 @@ program
   .option("--tests <summary>", "e.g. '27 passed'")
   .option("--exit-status <status>", "ok | failed | blocked", "ok")
   .option("--notes <text>")
+  .option("--command <text>", "command whose output may be offered to ChatGPT")
+  .option("--output <text>", "command output (prefer --output-file for long logs)")
+  .option("--output-file <path>", "read command output from a local file")
+  .option("--exit-code <n>", "numeric exit code of that command")
   .action(
     (opts: {
       workspace?: string;
@@ -907,11 +973,32 @@ program
       tests?: string;
       exitStatus: string;
       notes?: string;
+      command?: string;
+      output?: string;
+      outputFile?: string;
+      exitCode?: string;
     }) => {
       const workspace = new Workspace(resolveWorkspace(opts.workspace));
       const changed = /^\d+$/.test(opts.changedFiles)
         ? parseInt(opts.changedFiles, 10)
         : opts.changedFiles.split(",").map((file) => file.trim()).filter(Boolean);
+      let outputId: number | undefined;
+      let outputAvailable = false;
+      const rawOutput =
+        opts.outputFile !== undefined
+          ? readCappedUtf8(path.resolve(opts.outputFile), MAX_RECORD_OUTPUT_READ)
+          : opts.output;
+      if (opts.command && rawOutput !== undefined) {
+        const savedOutput = saveExecutionOutput(workspace.id, {
+          command: opts.command,
+          raw: rawOutput,
+          exitCode: opts.exitCode !== undefined ? parseInt(opts.exitCode, 10) : null,
+          taskId: opts.task,
+          iteration: parseInt(opts.iteration, 10),
+        });
+        outputId = savedOutput.id;
+        outputAvailable = savedOutput.allowed;
+      }
       appendExecutionRecord(workspace.id, {
         taskId: opts.task,
         iteration: parseInt(opts.iteration, 10),
@@ -919,9 +1006,13 @@ program
         tests: opts.tests ?? null,
         exitStatus: opts.exitStatus,
         timestamp: new Date().toISOString(),
-        notes: opts.notes,
+        notes: opts.notes?.slice(0, 400),
+        outputId,
+        outputAvailable,
       });
-      check("已记录执行摘要");
+      if (outputId !== undefined && !outputAvailable) check("已记录执行摘要（输出未对 ChatGPT 开放）");
+      else if (outputId !== undefined) check("已记录执行摘要与输出");
+      else check("已记录执行摘要");
     }
   );
 
