@@ -23,16 +23,30 @@ whatever data it needs by itself.
 1. NEVER paste file contents, diffs, or logs into ChatGPT. ChatGPT reads them through MCP.
 2. NEVER show the user technical internals (MCP, OAuth, PKCE, tunnel, ports, localhost).
    Speak in terms of "连接 ChatGPT / 安全连接 / 配对". The only exception is the
-   **guided manual ChatGPT setup fallback** below: expose only the exact settings
+   **guided manual ChatGPT setup** below: expose only the exact settings
    field labels/values the user must enter, without explaining internals.
 3. The pairing code is the ONLY credential you may ever type into a browser.
    Never touch OAuth tokens, cookies, or session storage.
 4. If something fails, run `c2c doctor` and repair silently. Only involve the user
-   for logins, CAPTCHA, 2FA, explicit consent screens, or the **guided manual
-   ChatGPT setup fallback** below — and then give them ONE action. During first-time
-   setup or ChatGPT reconnect, two explicit failures of the same browser configuration
-   step after repair trigger that fallback. A browser/js timeout, a page still
-   loading/generating, or waiting for user login/2FA does NOT count as a failure.
+   for logins, CAPTCHA, 2FA, explicit consent screens, or **guided manual
+   ChatGPT setup** below — and then give them ONE action.
+   Before the first ChatGPT connection on this machine, `c2c prefs --json`:
+   - `setupMode` missing: tell the user exactly `setupChoicePrompt`, wait for
+     「1」or「2」, then `c2c prefs set --setup-mode auto|manual --json`.
+     Do not start ChatGPT configuration until they answer. Do not guess.
+   - `setupMode` is `manual`: skip automatic ChatGPT settings. Use guided
+     manual from the start (chosen, not a failure).
+   - `setupMode` is `auto`: automatic browser setup. Two explicit failures of
+     the same configuration step after repair then enter guided manual.
+     A browser/js timeout, a page still loading/generating, or waiting for
+     user login/2FA does NOT count as a failure. Do not change the saved
+     `setupMode` when falling back.
+   `developerModeEnabled: true` means skip `#settings/Security` until a
+   connector create fails because developer mode is required. Then open
+   that page, enable it, and `c2c prefs set --developer-mode --json`.
+   These prefs are for this machine, not per workspace. Do not ask again
+   on reconnect or a second repo. A new computer (empty prefs) asks/checks
+   once.
 5. ALWAYS use the built-in in-app browser (iab) for every ChatGPT step.
    Follow **In-app browser (ChatGPT)** below. NEVER Computer Use (no
    screenshot-click). NEVER launch or control a third-party/external browser
@@ -102,6 +116,7 @@ that close the tab, hide the window, or stall on the settings page.
 
 4. **URLs only** (same tab, `goto` — never hunt menus):
    - 开发人员模式: `https://chatgpt.com/#settings/Security`
+     (skip when `c2c prefs --json` has `developerModeEnabled: true`)
    - 插件总管: `https://chatgpt.com/plugins`
    - 加插件: `https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins`
    - 新对话 (long-chat only, and only if no saved chat): `https://chatgpt.com/`
@@ -225,10 +240,26 @@ Speak only of 临时地址 / 固定域名 / 登录 Cloudflare.
    `connectorName` is this workspace's plugin title (legacy installs stay
    `Codex with ChatGPT`; additional workspaces get `Codex with ChatGPT · <name>`).
    Pairing codes expire in ~5 minutes: run `c2c pair --json` for a fresh one if you're slow.
-4. Open ChatGPT on the ONE iab tab (see **In-app browser**). Foreground +
+4. `c2c prefs --json` (this machine, not this workspace).
+   - If `setupMode` is null: tell the user exactly `setupChoicePrompt`. Wait
+     for「1」or「2」. Then `c2c prefs set --setup-mode auto` or `--setup-mode manual`.
+     Do not open ChatGPT settings and do not start automatic configuration
+     until they answer. Do not default to auto.
+   - If they later ask to switch: same `c2c prefs set --setup-mode` command.
+     Do not re-ask on a later workspace or on reconnect.
+   - `setupMode: "manual"`: skip step 5's automatic ChatGPT settings. Go to
+     **Guided manual ChatGPT setup** (chosen). Opening line:
+     `接下来用手动教学配置。一次只需要做一个操作。`
+     Do not say 自动配置没有成功.
+   - `setupMode: "auto"`: continue with step 5. Keep the two-failure fallback.
+5. Open ChatGPT on the ONE iab tab (see **In-app browser**). Foreground +
    markHandoff immediately. Same tab, `goto` only:
-   - 开发人员模式: `https://chatgpt.com/#settings/Security`
-     Enable 开发人员模式 ("Developer mode") if it is off.
+   - 开发人员模式: skip `https://chatgpt.com/#settings/Security` when
+     `developerModeEnabled` is true. Otherwise open it, enable 开发人员模式
+     ("Developer mode") if it is off, then `c2c prefs set --developer-mode`.
+     Never record it as off. If creating the connector later says developer
+     mode is required, open this page, enable it, save `--developer-mode`,
+     and retry create — do not skip that recovery.
    - 已有该 `connectorName`: `https://chatgpt.com/plugins` — Delete it (never
      Reconnect). Then `goto` the 加插件 URL below.
    - 还没有 / 刚删掉: `https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins`
@@ -243,7 +274,7 @@ Speak only of 临时地址 / 固定域名 / 登录 Cloudflare.
      Fill the known form in one script when you can. Then Connect / Authorize
      and type the pairing code. As soon as it shows Connected / authorized /
      pairing accepted, continue — do NOT wait for 8 tools on this page.
-5. Same tab: open the first C2C chat per **Conversation management**
+6. Same tab: open the first C2C chat per **Conversation management**
    (Project collection for a new workspace; `https://chatgpt.com/` only
    in long-chat). Confirm Chat mode per **In-app browser** §7 (if it is Work,
    open a new Chat conversation instead). Send the boot prompt from
@@ -252,7 +283,7 @@ Speak only of 临时地址 / 固定域名 / 登录 Cloudflare.
    Confirm the reply matches `workspaceName` (wait per **In-app browser** §8).
    Only then save the chat URL with `c2c session set` (see Conversation
    management). If the name does not match, do not save. markDeliverable.
-6. Report to the user exactly in this shape (no internals):
+7. Report to the user exactly in this shape (no internals):
 
 ```
 Codex with ChatGPT
@@ -269,26 +300,32 @@ Ready.
 If a login wall appears (ChatGPT, Cloudflare): stop, tell the user the ONE thing
 to do ("请登录 ChatGPT，完成后告诉我'好了'"), then continue.
 
-### Guided manual ChatGPT setup fallback
+### Guided manual ChatGPT setup
 
-Use this only when automatic ChatGPT browser configuration fails twice at the
-same explicit setup/reconnect step after `c2c doctor` / repair. Do NOT enter
-this fallback for a browser/js timeout without a visible error, a page that is
+Enter this path when `setupMode` is `manual` (chosen at the start), or when
+automatic ChatGPT browser configuration fails twice at the same explicit
+setup/reconnect step after `c2c doctor` / repair. Do NOT enter the failure
+path for a browser/js timeout without a visible error, a page that is
 still loading/generating, or while waiting for login / 2FA / CAPTCHA.
+A chosen manual path does not wait for those two failures.
 
 Stop automating ChatGPT settings. Keep the current local C2C state and the
 current `mcpUrl`, `pairingCode`, `workspaceName`, and `connectorName`. Do not
 silently fall back to Codex-only execution and do not permanently disable C2C.
-Tell the user exactly:
+Do not change the saved `setupMode` when this is a failure fallback.
 
-```
-自动配置没有成功，我来带你手动完成。一次只需要做一个操作。
-```
+Opening line:
+
+- Chosen (`setupMode: "manual"`): `接下来用手动教学配置。一次只需要做一个操作。`
+- Failure fallback: `自动配置没有成功，我来带你手动完成。一次只需要做一个操作。`
 
 Then guide ONE action at a time, waiting for the user to say「好了」before the
 next action:
 
-1. Ask them to open `https://chatgpt.com/#settings/Security` and enable 开发人员模式.
+1. If `developerModeEnabled` is not true: ask them to open
+   `https://chatgpt.com/#settings/Security` and enable 开发人员模式. After they
+   say「好了」, `c2c prefs set --developer-mode`. If it is already remembered,
+   skip this step.
 2. Ask them to open `https://chatgpt.com/plugins`. If the exact `connectorName`
    exists, delete only that connector. Never ask them to touch another workspace's connector.
 3. Ask them to open
@@ -592,9 +629,13 @@ the previous public address is gone. Doctor already started a new one.
    ask them to click around ChatGPT unless a login wall appears. Do not open
    the C2C chat and do not send `[C2C]` until this repair finishes and a
    follow-up doctor is green. Never "try a message first to see if it works".
+   Reuse `c2c prefs --json`. Do not re-ask setup mode. If `setupMode` is
+   `manual`, use **Guided manual ChatGPT setup** (chosen) instead of automating.
 2. Same one iab tab as setup (foreground + markHandoff). Settings URLs only
    until Connected — never hunt menus:
-   - 开发人员模式: `https://chatgpt.com/#settings/Security`
+   - 开发人员模式: skip `https://chatgpt.com/#settings/Security` when
+     `developerModeEnabled` is true. If create/delete then says developer
+     mode is required, open it, enable, `c2c prefs set --developer-mode`.
    - 插件总管（只用来 Delete）: `https://chatgpt.com/plugins`
    - 加插件（Delete 之后必走）: `https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins`
 3. Operate ONLY on `chatgptRepair.connectorName`. Never touch another

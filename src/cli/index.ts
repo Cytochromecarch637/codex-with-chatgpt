@@ -27,6 +27,7 @@ import {
 import { Logger } from "../logger/index.js";
 import { getStateDir } from "../config/paths.js";
 import { ensureSandboxAllowlist, getCodexConfigPath, isStateDirAllowlisted } from "../config/sandbox-allow.js";
+import { mergeUiPrefs, readUiPrefs, SETUP_MODES, type SetupMode } from "../config/ui-prefs.js";
 import {
   CHATGPT_CREATE_CONNECTOR_URL,
   CHATGPT_DEVELOPER_MODE_URL,
@@ -948,6 +949,57 @@ session
     if (!result.cleared) say("尚未记录 ChatGPT 会话。");
     else if (result.keptProject) check("已清除当前对话，合集绑定仍保留");
     else check("已清除会话记录，下次任务将新建 ChatGPT 会话");
+  });
+
+const prefsCmd = program
+  .command("prefs")
+  .description("Remember ChatGPT developer mode and setup choice for this machine");
+
+prefsCmd
+  .command("get", { isDefault: true })
+  .description("Show remembered ChatGPT setup choices (not per workspace)")
+  .option("--json", "machine-readable output", false)
+  .action((opts: { json: boolean }) => {
+    const prefs = readUiPrefs();
+    if (opts.json) {
+      say(JSON.stringify({ ok: true, ...prefs }));
+      return;
+    }
+    say(prefs.developerModeEnabled ? "开发人员模式：已记住已开启" : "开发人员模式：尚未记住");
+    if (prefs.setupMode === "auto") say("配置方式：AI 自动化配置（预览版）");
+    else if (prefs.setupMode === "manual") say("配置方式：手动教学配置");
+    else say("配置方式：尚未选择");
+  });
+
+prefsCmd
+  .command("set")
+  .description("Save a ChatGPT setup choice for this machine")
+  .option("--developer-mode", "remember that ChatGPT developer mode is on", false)
+  .option("--setup-mode <mode>", "auto (preview) or manual")
+  .option("--json", "machine-readable output", false)
+  .action((opts: { developerMode: boolean; setupMode?: string; json: boolean }) => {
+    try {
+      const modeRaw = opts.setupMode?.trim().toLowerCase();
+      if (modeRaw && !SETUP_MODES.includes(modeRaw as SetupMode)) {
+        throw new Error(`setup-mode must be one of ${SETUP_MODES.join(", ")}`);
+      }
+      if (!opts.developerMode && !modeRaw) {
+        throw new Error("nothing to save: pass --developer-mode and/or --setup-mode");
+      }
+      const prefs = mergeUiPrefs({
+        developerModeEnabled: opts.developerMode ? true : undefined,
+        setupMode: modeRaw as SetupMode | undefined,
+      });
+      if (opts.json) {
+        say(JSON.stringify({ ok: true, ...prefs }));
+        return;
+      }
+      if (opts.developerMode) check("已记住开发人员模式已开启");
+      if (modeRaw === "auto") check("已记住配置方式：AI 自动化配置（预览版）");
+      if (modeRaw === "manual") check("已记住配置方式：手动教学配置");
+    } catch (error) {
+      handleCliError(error, opts.json);
+    }
   });
 
 program
