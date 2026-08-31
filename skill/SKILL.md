@@ -22,11 +22,17 @@ whatever data it needs by itself.
 
 1. NEVER paste file contents, diffs, or logs into ChatGPT. ChatGPT reads them through MCP.
 2. NEVER show the user technical internals (MCP, OAuth, PKCE, tunnel, ports, localhost).
-   Speak in terms of "连接 ChatGPT / 安全连接 / 配对".
+   Speak in terms of "连接 ChatGPT / 安全连接 / 配对". The only exception is the
+   **guided manual ChatGPT setup fallback** below: expose only the exact settings
+   field labels/values the user must enter, without explaining internals.
 3. The pairing code is the ONLY credential you may ever type into a browser.
    Never touch OAuth tokens, cookies, or session storage.
 4. If something fails, run `c2c doctor` and repair silently. Only involve the user
-   for logins, CAPTCHA, 2FA, or explicit consent screens — and then give them ONE action.
+   for logins, CAPTCHA, 2FA, explicit consent screens, or the **guided manual
+   ChatGPT setup fallback** below — and then give them ONE action. During first-time
+   setup or ChatGPT reconnect, two explicit failures of the same browser configuration
+   step after repair trigger that fallback. A browser/js timeout, a page still
+   loading/generating, or waiting for user login/2FA does NOT count as a failure.
 5. ALWAYS use the built-in in-app browser (iab) for every ChatGPT step.
    Follow **In-app browser (ChatGPT)** below. NEVER Computer Use (no
    screenshot-click). NEVER launch or control a third-party/external browser
@@ -141,9 +147,11 @@ that close the tab, hide the window, or stall on the settings page.
 
 ## Locations
 
-- The codex-with-chatgpt checkout lives at: `/Users/xiaoduo_/Codex_With_ChatGPT`
-- CLI: run `node /Users/xiaoduo_/Codex_With_ChatGPT/bin/c2c.js <command>`
-  (or `c2c <command>` if globally linked). All commands support `--json` for parsing.
+- The codex-with-chatgpt checkout lives at: `<ACTUAL_CHECKOUT_PATH>`
+  (installer/update MUST replace this line in the installed Skill with the user's actual checkout path.)
+- CLI: let `<checkout>` mean the path on the previous line; run
+  `node "<checkout>/bin/c2c.js" <command>` (or `c2c <command>` if globally linked).
+  All commands support `--json` for parsing.
 - If the checkout has no `node_modules` or no `dist/`, first run
   `corepack pnpm install && corepack pnpm build` inside it.
 - Always pass `-w <workspace root>` (the project the user is working on, NOT the c2c repo).
@@ -261,6 +269,41 @@ Ready.
 If a login wall appears (ChatGPT, Cloudflare): stop, tell the user the ONE thing
 to do ("请登录 ChatGPT，完成后告诉我'好了'"), then continue.
 
+### Guided manual ChatGPT setup fallback
+
+Use this only when automatic ChatGPT browser configuration fails twice at the
+same explicit setup/reconnect step after `c2c doctor` / repair. Do NOT enter
+this fallback for a browser/js timeout without a visible error, a page that is
+still loading/generating, or while waiting for login / 2FA / CAPTCHA.
+
+Stop automating ChatGPT settings. Keep the current local C2C state and the
+current `mcpUrl`, `pairingCode`, `workspaceName`, and `connectorName`. Do not
+silently fall back to Codex-only execution and do not permanently disable C2C.
+Tell the user exactly:
+
+```
+自动配置没有成功，我来带你手动完成。一次只需要做一个操作。
+```
+
+Then guide ONE action at a time, waiting for the user to say「好了」before the
+next action:
+
+1. Ask them to open `https://chatgpt.com/#settings/Security` and enable 开发人员模式.
+2. Ask them to open `https://chatgpt.com/plugins`. If the exact `connectorName`
+   exists, delete only that connector. Never ask them to touch another workspace's connector.
+3. Ask them to open
+   `https://chatgpt.com/plugins#settings/Connectors?create-connector=true&redirectAfter=%2Fplugins`
+   and create the exact `connectorName` with:
+   - Description: `Securely connect ChatGPT to the current Codex workspace for planning and review.`
+   - Server URL: the current `mcpUrl`
+   - Authentication: OAuth
+4. Ask them to Connect / Authorize and enter the current pairing code. If it
+   expired, run `c2c pair --json` and give them only the fresh pairing code.
+5. When they report Connected / authorized / pairing accepted, resume the normal
+   setup/reconnect flow at its ChatGPT verification step. If automatic browser
+   verification then hits the same explicit failure twice, stop and report the
+   exact failed step; do not loop indefinitely and do not continue without C2C.
+
 ## Conversation management
 
 `c2c session -w <ws> --json` → `{ session, conversation }`.
@@ -290,7 +333,7 @@ ONE ChatGPT conversation per workspace. Same as before.
   2. Send a HANDOFF (`docs/protocol.md`) — goal, progress, state, issues,
      next step. Never paste files.
   3. workspace_info check; only then `c2c session set --url`. On failure,
-     leave the old URL unchanged.
+     leave the old saved URL unchanged.
 - Saved chat 404s: treat as a switch. Reconstruct HANDOFF from `c2c session`
   and recent `execution_summary`.
 
@@ -548,6 +591,7 @@ the previous public address is gone. Doctor already started a new one.
 | Tunnel dead / URL unreachable / 全关掉后连接失效 | `c2c doctor` → if `namedRepair.needed`, login to Cloudflare and doctor again (do not Delete). If `chatgptRepair.needed`, tell the user the message, then **Delete** THIS workspace's connector only (`connectorName`) and create it again. Never Reconnect. |
 | ChatGPT says tool call failed / 401 | token expired or revoked → re-pair (new pairing code + authorize) |
 | Pairing code rejected/expired | `c2c pair --json` for a fresh code |
+| Same explicit ChatGPT setup/reconnect browser configuration step fails twice after repair | Stop automating ChatGPT settings and use **Guided manual ChatGPT setup fallback**. Do not count browser/js timeout, loading/generating, or login/2FA waiting as failures. |
 | Port conflict | handled automatically; never surface to the user |
 | Every new chat “repairs” / cannot write the log or settings directory | `c2c sandbox-allow --json` (once). Do not ask the user. |
 | cloudflared missing | install it yourself (brew/winget), then retry |
